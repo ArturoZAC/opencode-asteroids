@@ -66,6 +66,7 @@ const BOOST_DROP_CHANCE = 0.12;   // probabilidad de drop al romper asteroide
 const POWERUP_TTL       = 12;     // seg flotando sin recoger
 const BOOST_DURATION    = 5;      // seg de boost
 const BOOST_MUL         = 2;      // multiplicador de empuje
+const SHIELD_DURATION   = 5;      // seg de escudo
 
 // Estrella fugaz
 const STAR_RADII      = [0, 7, 11];          // por tier 1 (pequeña), 2 (grande)
@@ -230,12 +231,14 @@ class Ship {
     this.invincible    = 3;
     this.shootCooldown = 0;
     this.speedTimer    = 0;
+    this.shieldTimer   = 0;
     this.dead          = false;
   }
 
   update(dt) {
     if (this.dead) return;
     if (this.speedTimer    > 0) this.speedTimer    -= dt;
+    if (this.shieldTimer   > 0) this.shieldTimer   -= dt;
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
 
@@ -300,6 +303,17 @@ class Ship {
     }
 
     ctx.restore();
+
+    // Anillo de escudo activo (parpadea al expirar)
+    const shieldBlink = this.shieldTimer < 1.5 && Math.floor(this.shieldTimer * 6) % 2 === 0;
+    if (this.shieldTimer > 0 && !shieldBlink) {
+      const alpha = 0.35 + 0.25 * Math.abs(Math.sin(this.shieldTimer * 8));
+      ctx.strokeStyle = `rgba(79, 216, 255, ${alpha.toFixed(2)})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, 24, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
 }
 
@@ -337,9 +351,10 @@ class Particle {
 
 // ── Power-up (Velocidad) ──────────────────────────────────────────────────────
 class PowerUp {
-  constructor(x, y) {
+  constructor(x, y, type = 'boost') {
     this.x = x;
     this.y = y;
+    this.type = type;
     this.vx = rand(-40, 40);
     this.vy = rand(-40, 40);
     this.radius = 10;
@@ -359,16 +374,29 @@ class PowerUp {
     if (blink) return;
     ctx.save();
     ctx.translate(this.x, this.y);
-    ctx.strokeStyle = '#ffd400';
-    ctx.lineWidth   = 1.5;
-    ctx.lineJoin    = 'round';
-    ctx.beginPath();
-    ctx.moveTo( 0, -10);
-    ctx.lineTo( 10,  0);
-    ctx.lineTo( 0,  10);
-    ctx.lineTo(-10,  0);
-    ctx.closePath();
-    ctx.stroke();
+    if (this.type === 'shield') {
+      // Círculo con punto central
+      ctx.strokeStyle = '#4fd8ff';
+      ctx.lineWidth   = 1.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, 9, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#4fd8ff';
+      ctx.beginPath();
+      ctx.arc(0, 0, 3, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.strokeStyle = '#ffd400';
+      ctx.lineWidth   = 1.5;
+      ctx.lineJoin    = 'round';
+      ctx.beginPath();
+      ctx.moveTo( 0, -10);
+      ctx.lineTo( 10,  0);
+      ctx.lineTo( 0,  10);
+      ctx.lineTo(-10,  0);
+      ctx.closePath();
+      ctx.stroke();
+    }
     ctx.restore();
   }
 }
@@ -443,6 +471,16 @@ function killShip() {
   }
 }
 
+// Destruye un asteroide/estrella: puntúa, explota, puede dropear power-up y fracciona
+function hitAsteroid(a) {
+  a.dead = true;
+  score += a.points ?? POINTS[a.size];
+  explode(a.x, a.y, a.size * 5);
+  if (Math.random() < BOOST_DROP_CHANCE)
+    powerups.push(new PowerUp(a.x, a.y, Math.random() < 0.5 ? 'boost' : 'shield'));
+  return a.split();
+}
+
 // ── Update ────────────────────────────────────────────────────────────────────
 function update(dt) {
   if (state === 'gameover') {
@@ -488,32 +526,31 @@ function update(dt) {
     for (const a of asteroids) {
       if (!a.dead && !b.dead && dist(b, a) < a.radius) {
         b.dead = true;
-        a.dead = true;
-        score += a.points ?? POINTS[a.size];
-        explode(a.x, a.y, a.size * 5);
-        if (Math.random() < BOOST_DROP_CHANCE) powerups.push(new PowerUp(a.x, a.y));
-        newAsteroids.push(...a.split());
+        newAsteroids.push(...hitAsteroid(a));
       }
     }
   }
-  asteroids = asteroids.filter(a => !a.dead).concat(newAsteroids);
-  bullets   = bullets.filter(b => !b.dead);
 
-  // Nave vs asteroide
+  // Nave vs asteroide: con escudo activo, rompe el asteroide en vez de morir
   if (ship.invincible <= 0) {
     for (const a of asteroids) {
       if (dist(ship, a) < ship.radius + a.radius * 0.82) {
-        killShip();
+        if (ship.shieldTimer > 0) newAsteroids.push(...hitAsteroid(a));
+        else killShip();
         break;
       }
     }
   }
 
+  asteroids = asteroids.filter(a => !a.dead).concat(newAsteroids);
+  bullets   = bullets.filter(b => !b.dead);
+
   // Nave vs power-up
   for (const pu of powerups) {
     if (dist(ship, pu) < ship.radius + pu.radius) {
       pu.dead = true;
-      ship.speedTimer = BOOST_DURATION;
+      if (pu.type === 'shield') ship.shieldTimer = SHIELD_DURATION;
+      else                      ship.speedTimer = BOOST_DURATION;
       explode(pu.x, pu.y, 6);
     }
   }
@@ -554,24 +591,31 @@ function drawHUD() {
   for (let i = 0; i < lives; i++)
     drawLifeIcon(W - 16 - i * 22, 18);
 
+  let hudY = 46;
   if (ship.speedTimer > 0) {
-    const BAR_W = 140;
-    const BAR_H = 7;
-    const frac  = Math.max(ship.speedTimer / BOOST_DURATION, 0);
-    const x     = W / 2 - BAR_W / 2;
-    const y     = 54;
-
-    ctx.fillStyle = '#a855f7';
-    ctx.textAlign = 'center';
-    ctx.fillText(`VELOCIDAD ${ship.speedTimer.toFixed(1)}s`, W / 2, 46);
-
-    // contorno
-    ctx.strokeStyle = '#a855f7';
-    ctx.lineWidth   = 1;
-    ctx.strokeRect(x, y, BAR_W, BAR_H);
-    // relleno: se vacía de derecha hacia la izquierda
-    ctx.fillRect(x + 1.5, y + 1.5, (BAR_W - 3) * frac, BAR_H - 3);
+    drawTimedBar(ship.speedTimer, BOOST_DURATION, `VELOCIDAD ${ship.speedTimer.toFixed(1)}s`, '#a855f7', hudY);
+    hudY += 26;
   }
+  if (ship.shieldTimer > 0)
+    drawTimedBar(ship.shieldTimer, SHIELD_DURATION, `ESCUDO ${ship.shieldTimer.toFixed(1)}s`, '#4fd8ff', hudY);
+}
+
+// Indicador genérico de power-up activo: etiqueta + barra que se vacía a la izquierda
+function drawTimedBar(timer, duration, label, color, y) {
+  const BAR_W = 140;
+  const BAR_H = 7;
+  const frac  = Math.max(timer / duration, 0);
+  const x     = W / 2 - BAR_W / 2;
+
+  ctx.fillStyle   = color;
+  ctx.textAlign   = 'center';
+  ctx.fillText(label, W / 2, y);
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth   = 1;
+  ctx.strokeRect(x, y + 8, BAR_W, BAR_H);
+  ctx.fillStyle   = color;
+  ctx.fillRect(x + 1.5, y + 9.5, (BAR_W - 3) * frac, BAR_H - 3);
 }
 
 function drawOverlay(title, sub) {
