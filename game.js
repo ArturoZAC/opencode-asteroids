@@ -507,10 +507,11 @@ function hitAsteroid(a) {
   a.dead = true;
   score += a.points ?? POINTS[a.size];
   explode(a.x, a.y, a.size * 5);
-  if (Math.random() < BOOST_DROP_CHANCE)
-    // drop aleatorio: velocidad | triple | shield
+  // drop aleatorio: velocidad | triple | shield
+  if (Math.random() < BOOST_DROP_CHANCE) {
     const TYPES = ['boost', 'triple', 'shield'];
     powerups.push(new PowerUp(a.x, a.y, TYPES[(Math.random() * TYPES.length) | 0]));
+  }
   return a.split();
 }
 
