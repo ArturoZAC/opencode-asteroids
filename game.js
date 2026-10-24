@@ -284,7 +284,7 @@ class Ship {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
-    ctx.strokeStyle = '#fff';
+    ctx.strokeStyle = SKINS[currentSkin].stroke;
     ctx.lineWidth   = 1.5;
     ctx.lineJoin    = 'round';
 
@@ -303,7 +303,7 @@ class Ship {
       ctx.moveTo(-8, -4);
       ctx.lineTo(-8 - rand(6, 14), 0);
       ctx.lineTo(-8,  4);
-      ctx.strokeStyle = 'rgba(255, 130, 0, 0.85)';
+      ctx.strokeStyle = SKINS[currentSkin].flame;
       ctx.stroke();
     }
 
@@ -418,11 +418,26 @@ class PowerUp {
 }
 
 // ── Estado del juego ──────────────────────────────────────────────────────────
+const SKINS = [
+  { name: 'CLASICA', stroke: '#fff', flame: 'rgba(255, 130, 0, 0.85)' },
+  { name: 'ROJA',    stroke: '#f45', flame: 'rgba(255, 90, 90, 0.85)' },
+  { name: 'CIAN',    stroke: '#4df', flame: 'rgba(80, 200, 255, 0.85)' },
+  { name: 'VERDE',   stroke: '#5f5', flame: 'rgba(120, 255, 120, 0.85)' },
+];
+
 let ship, bullets, asteroids, particles, powerups;
 let score, lives, level;
 let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
 let starTimer;  // cuenta regresiva para la próxima estrella fugaz
+let currentSkin = Math.min(+localStorage.getItem('skin') || 0, SKINS.length - 1);
+let skinToast = 0;
+
+function cycleSkin() {
+  currentSkin = (currentSkin + 1) % SKINS.length;
+  localStorage.setItem('skin', currentSkin);
+  skinToast = 1.5;
+}
 
 // Spawnea una estrella desde un borde, apuntando hacia el centro con desvío
 function spawnShootingStar() {
@@ -501,6 +516,9 @@ function hitAsteroid(a) {
 
 // ── Update ────────────────────────────────────────────────────────────────────
 function update(dt) {
+  if (pressed('KeyC')) cycleSkin();
+  if (skinToast > 0) skinToast -= dt;
+
   if (state === 'gameover') {
     if (pressed('Space')) initGame();
     particles.forEach(p => p.update(dt));
@@ -615,12 +633,13 @@ function drawHUD() {
     drawTimedBar(`VELOCIDAD ${ship.speedTimer.toFixed(1)}s`, ship.speedTimer, BOOST_DURATION, '#a855f7', hudY);
     hudY += 26;
   }
-  if (ship.tripleTimer > 0) {
-    drawTimedBar(`TRIPLE ${ship.tripleTimer.toFixed(1)}s`, ship.tripleTimer, TRIPLE_DURATION, '#4ade80', hudY);
-    hudY += 26;
-  }
   if (ship.shieldTimer > 0)
     drawTimedBar(`ESCUDO ${ship.shieldTimer.toFixed(1)}s`, ship.shieldTimer, SHIELD_DURATION, '#4fd8ff', hudY);
+
+  if (skinToast > 0) {
+    ctx.fillStyle = SKINS[currentSkin].stroke;
+    ctx.fillText(`NAVE: ${SKINS[currentSkin].name} — (C para cambiar)`, W / 2, H - 20);
+  }
 }
 
 // Indicador genérico de power-up activo: etiqueta + barra que se vacía a la izquierda
