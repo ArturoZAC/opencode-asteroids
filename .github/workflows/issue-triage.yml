@@ -2,7 +2,7 @@ name: issue-triage
 
 on:
   issues:
-    types: [opened]
+    types: [opened, reopened]
 
 concurrency:
   group: issue-triage-${{ github.event.issue.number }}
@@ -141,14 +141,25 @@ jobs:
         if: steps.check.outputs.result == 'true'
         shell: bash
         run: |
+          set +e
           opencode run "$(cat "$RUNNER_TEMP/prompt.txt")" \
             --model opencode-go/deepseek-v4.1-flash \
             --format json \
             --auto \
             > "$RUNNER_TEMP/events.ndjson" 2> "$RUNNER_TEMP/opencode.log"
-          echo "::group::opencode log (últimas 40 líneas)"
-          tail -n 40 "$RUNNER_TEMP/opencode.log" || true
+          code=$?
+          set -e
+          echo "opencode exit code: $code"
+          echo "::group::opencode log (últimas 60 líneas)"
+          tail -n 60 "$RUNNER_TEMP/opencode.log" || true
           echo "::endgroup::"
+          echo "::group::events.ndjson (primeras 15 líneas)"
+          head -n 15 "$RUNNER_TEMP/events.ndjson" || true
+          echo "::endgroup::"
+          if [ "$code" -ne 0 ]; then
+            echo "::error::opencode terminó con código $code (ver los grupos de arriba)"
+            exit "$code"
+          fi
 
       - name: Parse and validate result
         if: steps.check.outputs.result == 'true'
@@ -160,22 +171,36 @@ jobs:
           tmp = os.environ["RUNNER_TEMP"]
           allowed = {"bug", "enhancement", "question", "documentation", "needs-triage"}
 
-          # Los eventos de --format json son planos: {type, timestamp, sessionID, ...data}
+          # Sin asumir la forma exacta del evento: se busca cualquier {type:"text", text} en cualquier nivel
+          def collect(node, out):
+              if isinstance(node, dict):
+                  if node.get("type") == "text" and isinstance(node.get("text"), str):
+                      out.append(node["text"])
+                  for v in node.values():
+                      collect(v, out)
+              elif isinstance(node, list):
+                  for v in node:
+                      collect(v, out)
+
           text_parts = []
-          try:
-              with open(os.path.join(tmp, "events.ndjson"), encoding="utf-8") as f:
+          events_seen = 0
+          for name in ("events.ndjson", "opencode.log"):
+              path = os.path.join(tmp, name)
+              if not os.path.exists(path):
+                  continue
+              with open(path, encoding="utf-8", errors="replace") as f:
                   for line in f:
                       line = line.strip()
-                      if not line:
+                      if not line.startswith("{"):
                           continue
                       try:
                           ev = json.loads(line)
                       except Exception:
                           continue
-                      if isinstance(ev, dict) and ev.get("type") == "text" and isinstance(ev.get("text"), str):
-                          text_parts.append(ev["text"])
-          except FileNotFoundError:
-              pass
+                      events_seen += 1
+                      collect(ev, text_parts)
+
+          print(f"Eventos JSON leídos: {events_seen} | bloques de texto: {len(text_parts)}")
 
           def extract(raw):
               m = re.search(r"```(?:json)?\s*(\{.*\})\s*```", raw, re.S)
@@ -198,6 +223,12 @@ jobs:
 
           if not isinstance(data, dict):
               print("::warning::opencode no devolvió un JSON válido; se omite la edición del issue")
+              if not text_parts:
+                  print("::warning::no se encontró ningún bloque de texto en la salida de opencode")
+              else:
+                  print("::group::último texto de opencode")
+                  print(text_parts[-1][:1500])
+                  print("::endgroup::")
               sys.exit(0)
 
           labels = data.get("labels")
