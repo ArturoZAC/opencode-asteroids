@@ -228,7 +228,10 @@ class Ship {
     this.angle  = -Math.PI / 2;
     this.vx     = 0;
     this.vy     = 0;
+    this.scale  = 1;
+    this.scoreMul = 1;
     this.radius = 12;
+    this.applySkin();
     this.thrusting     = false;
     this.invincible    = 3;
     this.shootCooldown = 0;
@@ -236,6 +239,13 @@ class Ship {
     this.tripleTimer   = 0;
     this.shieldTimer   = 0;
     this.dead          = false;
+  }
+
+  applySkin() {
+    const skin = SKINS[currentSkin];
+    this.scale    = skin.scale ?? 1;
+    this.scoreMul = skin.scoreMul ?? 1;
+    this.radius   = 12 * this.scale;
   }
 
   update(dt) {
@@ -269,7 +279,7 @@ class Ship {
   tryShoot() {
     if (this.shootCooldown > 0 || this.dead) return [];
     this.shootCooldown = 0.2;
-    const NOSE = 21;
+    const NOSE = 21 * this.scale;
     const ox = this.x + Math.cos(this.angle) * NOSE;
     const oy = this.y + Math.sin(this.angle) * NOSE;
     if (this.tripleTimer <= 0) return [new Bullet(ox, oy, this.angle)];
@@ -284,8 +294,9 @@ class Ship {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
+    ctx.scale(this.scale, this.scale);
     ctx.strokeStyle = SKINS[currentSkin].stroke;
-    ctx.lineWidth   = 1.5;
+    ctx.lineWidth   = 1.5 / this.scale;
     ctx.lineJoin    = 'round';
 
     // Silueta clásica: triángulo con muesca trasera
@@ -316,7 +327,7 @@ class Ship {
       ctx.strokeStyle = `rgba(79, 216, 255, ${alpha.toFixed(2)})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(this.x, this.y, 24, 0, Math.PI * 2);
+      ctx.arc(this.x, this.y, 24 * this.scale, 0, Math.PI * 2);
       ctx.stroke();
     }
   }
@@ -419,10 +430,11 @@ class PowerUp {
 
 // ── Estado del juego ──────────────────────────────────────────────────────────
 const SKINS = [
-  { name: 'CLASICA', stroke: '#fff', flame: 'rgba(255, 130, 0, 0.85)' },
-  { name: 'ROJA',    stroke: '#f45', flame: 'rgba(255, 90, 90, 0.85)' },
-  { name: 'CIAN',    stroke: '#4df', flame: 'rgba(80, 200, 255, 0.85)' },
-  { name: 'VERDE',   stroke: '#5f5', flame: 'rgba(120, 255, 120, 0.85)' },
+  { name: 'CLASICA', stroke: '#fff', flame: 'rgba(255, 130, 0, 0.85)',  scale: 1, scoreMul: 1 },
+  { name: 'ROJA',    stroke: '#f45', flame: 'rgba(255, 90, 90, 0.85)',  scale: 1, scoreMul: 1 },
+  { name: 'CIAN',    stroke: '#4df', flame: 'rgba(80, 200, 255, 0.85)', scale: 1, scoreMul: 1 },
+  { name: 'VERDE',   stroke: '#5f5', flame: 'rgba(120, 255, 120, 0.85)', scale: 1, scoreMul: 1 },
+  { name: 'MORADA',  stroke: '#a855f7', flame: 'rgba(168, 85, 247, 0.85)', scale: 2, scoreMul: 2 },
 ];
 
 let ship, bullets, asteroids, particles, powerups;
@@ -436,6 +448,7 @@ let skinToast = 0;
 function cycleSkin() {
   currentSkin = (currentSkin + 1) % SKINS.length;
   localStorage.setItem('skin', currentSkin);
+  ship.applySkin();
   skinToast = 1.5;
 }
 
@@ -505,7 +518,7 @@ function killShip() {
 // Destruye un asteroide/estrella: puntúa, explota, puede dropear power-up y fracciona
 function hitAsteroid(a) {
   a.dead = true;
-  score += a.points ?? POINTS[a.size];
+  score += (a.points ?? POINTS[a.size]) * ship.scoreMul;
   explode(a.x, a.y, a.size * 5);
   // drop aleatorio: velocidad | triple | shield
   if (Math.random() < BOOST_DROP_CHANCE) {
@@ -629,6 +642,11 @@ function drawHUD() {
   for (let i = 0; i < lives; i++)
     drawLifeIcon(W - 16 - i * 22, 18);
 
+  if (ship.scoreMul > 1) {
+    ctx.fillStyle = SKINS[currentSkin].stroke;
+    ctx.fillText(`PUNTOS x${ship.scoreMul}`, 14, 46);
+  }
+
   let hudY = 46;
   if (ship.speedTimer > 0) {
     drawTimedBar(`VELOCIDAD ${ship.speedTimer.toFixed(1)}s`, ship.speedTimer, BOOST_DURATION, '#a855f7', hudY);
@@ -638,8 +656,10 @@ function drawHUD() {
     drawTimedBar(`ESCUDO ${ship.shieldTimer.toFixed(1)}s`, ship.shieldTimer, SHIELD_DURATION, '#4fd8ff', hudY);
 
   if (skinToast > 0) {
-    ctx.fillStyle = SKINS[currentSkin].stroke;
-    ctx.fillText(`NAVE: ${SKINS[currentSkin].name} — (C para cambiar)`, W / 2, H - 20);
+    const skin = SKINS[currentSkin];
+    const bonus = skin.scoreMul > 1 ? ` — x${skin.scoreMul} PUNTOS` : '';
+    ctx.fillStyle = skin.stroke;
+    ctx.fillText(`NAVE: ${skin.name}${bonus} — (C para cambiar)`, W / 2, H - 20);
   }
 }
 
