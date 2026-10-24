@@ -276,7 +276,7 @@ class Ship {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
-    ctx.strokeStyle = '#fff';
+    ctx.strokeStyle = SKINS[currentSkin].stroke;
     ctx.lineWidth   = 1.5;
     ctx.lineJoin    = 'round';
 
@@ -295,7 +295,7 @@ class Ship {
       ctx.moveTo(-8, -4);
       ctx.lineTo(-8 - rand(6, 14), 0);
       ctx.lineTo(-8,  4);
-      ctx.strokeStyle = 'rgba(255, 130, 0, 0.85)';
+      ctx.strokeStyle = SKINS[currentSkin].flame;
       ctx.stroke();
     }
 
@@ -374,11 +374,26 @@ class PowerUp {
 }
 
 // ── Estado del juego ──────────────────────────────────────────────────────────
+const SKINS = [
+  { name: 'CLASICA', stroke: '#fff', flame: 'rgba(255, 130, 0, 0.85)' },
+  { name: 'ROJA',    stroke: '#f45', flame: 'rgba(255, 90, 90, 0.85)' },
+  { name: 'CIAN',    stroke: '#4df', flame: 'rgba(80, 200, 255, 0.85)' },
+  { name: 'VERDE',   stroke: '#5f5', flame: 'rgba(120, 255, 120, 0.85)' },
+];
+
 let ship, bullets, asteroids, particles, powerups;
 let score, lives, level;
 let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
 let starTimer;  // cuenta regresiva para la próxima estrella fugaz
+let currentSkin = Math.min(+localStorage.getItem('skin') || 0, SKINS.length - 1);
+let skinToast = 0;
+
+function cycleSkin() {
+  currentSkin = (currentSkin + 1) % SKINS.length;
+  localStorage.setItem('skin', currentSkin);
+  skinToast = 1.5;
+}
 
 // Spawnea una estrella desde un borde, apuntando hacia el centro con desvío
 function spawnShootingStar() {
@@ -445,6 +460,9 @@ function killShip() {
 
 // ── Update ────────────────────────────────────────────────────────────────────
 function update(dt) {
+  if (pressed('KeyC')) cycleSkin();
+  if (skinToast > 0) skinToast -= dt;
+
   if (state === 'gameover') {
     if (pressed('Space')) initGame();
     particles.forEach(p => p.update(dt));
@@ -571,6 +589,10 @@ function drawHUD() {
     ctx.strokeRect(x, y, BAR_W, BAR_H);
     // relleno: se vacía de derecha hacia la izquierda
     ctx.fillRect(x + 1.5, y + 1.5, (BAR_W - 3) * frac, BAR_H - 3);
+  }
+  if (skinToast > 0) {
+    ctx.fillStyle = SKINS[currentSkin].stroke;
+    ctx.fillText(`NAVE: ${SKINS[currentSkin].name} — (C para cambiar)`, W / 2, H - 20);
   }
 }
 
